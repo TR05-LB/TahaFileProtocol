@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taha-file-protocol"
+version = "0.1.0"
+description = "A project for building a custom file transfer protocol over TCP."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Taha Ramadan" }
+]
+license = "MIT"
+keywords = ["file-transfer", "protocol", "tcp", "networking"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: System :: Networking",
+]
+
+[project.scripts]
+tfp-send = "tfp.sender:main"
+tfp-receive = "tfp.receiver:main"
+
+[tool.setuptools]
+packages = ["tfp"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
