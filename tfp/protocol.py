@@ -8,6 +8,9 @@ HEADER_FORMAT = "!4sBQ"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 MAX_PAYLOAD_SIZE = 16 * 1024 * 1024
 
+PROTOCOL_NAME = "TFP"
+PROTOCOL_VERSION = "0.2.0"
+SUPPORTED_FEATURES = ["checksum", "transfer-id", "receipt"]
 
 class MessageType(IntEnum):
     HELLO = 1
@@ -96,3 +99,13 @@ def encode_json(data):
 def decode_json(payload):
     text = payload.decode("utf-8")
     return json.loads(text)
+
+def encode_error(message, code="ERROR"):
+    return encode_json({
+        "code": code,
+        "message": message,
+    })
+
+
+def decode_error(payload):
+    return decode_json(payload)

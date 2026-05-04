@@ -1,18 +1,28 @@
 import argparse
+import json
 import socket
+from datetime import datetime, timezone
 from pathlib import Path
 
 from tfp.checksum import calculate_sha256
 from tfp.protocol import (
+    PROTOCOL_NAME,
+    PROTOCOL_VERSION,
+    SUPPORTED_FEATURES,
     MessageType,
     ProtocolError,
     decode_json,
+    encode_error,
+    encode_json,
     send_packet,
     read_packet,
 )
 
 
+
 def expect_packet(sock, expected_type):
+    
+
     message_type, payload = read_packet(sock)
 
     if message_type != expected_type:
@@ -22,8 +32,15 @@ def expect_packet(sock, expected_type):
 
     return payload
 
+def write_receipt(output_path, receipt):
+        receipt_path = output_path.with_suffix(output_path.suffix + ".tfp-receipt.json")
 
-def receive_file(host, port, output_dir):
+        with open(receipt_path, "w", encoding="utf-8") as file:
+            json.dump(receipt, file, indent=2)
+
+        return receipt_path
+
+def receive_file(host, port, output_dir, progress_callback=None):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -39,8 +56,39 @@ def receive_file(host, port, output_dir):
         with conn:
             print(f"Connection from {address[0]}:{address[1]}")
 
-            expect_packet(conn, MessageType.HELLO)
-            send_packet(conn, MessageType.ACK)
+            hello_payload = expect_packet(conn, MessageType.HELLO)
+            hello = decode_json(hello_payload)
+
+            if hello.get("protocol") != PROTOCOL_NAME:
+                send_packet(
+                    conn,
+                    MessageType.ERROR,
+                    encode_error("unsupported protocol", "UNSUPPORTED_PROTOCOL"),
+                )
+                raise ProtocolError("unsupported protocol")
+
+            if hello.get("version") != PROTOCOL_VERSION:
+                message = f"unsupported protocol version: {hello.get('version')}"
+                send_packet(
+                    conn,
+                    MessageType.ERROR,
+                    encode_error(message, "UNSUPPORTED_VERSION"),
+                )
+                raise ProtocolError(message)
+
+
+            transfer_id = hello["transfer_id"]
+
+            ack = {
+                "accepted": True,
+                "protocol": PROTOCOL_NAME,
+                "version": PROTOCOL_VERSION,
+                "features": SUPPORTED_FEATURES,
+                "transfer_id": transfer_id,
+            }
+
+            send_packet(conn, MessageType.ACK, encode_json(ack))
+
 
             file_info_payload = expect_packet(conn, MessageType.FILE_INFO)
             file_info = decode_json(file_info_payload)
@@ -63,6 +111,9 @@ def receive_file(host, port, output_dir):
                         file.write(payload)
                         bytes_received += len(payload)
                         send_packet(conn, MessageType.ACK)
+                        if progress_callback is not None:
+                            progress_callback(bytes_received, expected_size)
+
 
                     elif message_type == MessageType.FILE_END:
                         send_packet(conn, MessageType.ACK)
@@ -82,8 +133,23 @@ def receive_file(host, port, output_dir):
 
             if actual_sha256 != expected_sha256:
                 raise ProtocolError("checksum mismatch")
+            receipt = {
+                "status": "complete",
+                "protocol": PROTOCOL_NAME,
+                "version": PROTOCOL_VERSION,
+                "transfer_id": transfer_id,
+                "filename": filename,
+                "saved_path": str(output_path),
+                "size": bytes_received,
+                "sha256": actual_sha256,
+                "sender": f"{address[0]}:{address[1]}",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            receipt_path = write_receipt(output_path, receipt)
 
             print(f"Received {output_path}")
+            print(f"Receipt: {receipt_path}")
             print(f"Size: {bytes_received} bytes")
             print(f"SHA-256: {actual_sha256}")
 
